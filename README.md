@@ -153,6 +153,26 @@ The baseline extrapolates the latest eastward and northward velocities for 24 ho
 - Held-out evaluation with error-versus-lead-time plots.
 - A final report explaining model skill, limitations, and practical implications.
 
+### Success Criteria
+The project will be considered successful if all primary deliverables are achieved:
+1. Preprocessing pipeline produces valid forecast samples from the Q3 Gulf‑Stream dataset, with clear documentation of sample loss during filtering.
+2. Both physical baselines are fully implemented, with fallback handling for locations outside training‑data spatial coverage.
+3. Core comparison is completed on held‑out drifters: quantify whether adding recent trajectory‑history features reduces forecast error compared to baselines.
+4. Evaluation reports median and 90‑percentile great‑circle distance error for all models on identical test samples.
+5. Codebase is fully parameterised: geographic bounding box can be changed without rewriting analysis logic.
+
+Partial success: Core baseline implementation and preprocessing are complete, but machine‑learning model tuning or extended‑horizon experiments remain incomplete.
+
+Project failure: Cannot produce valid forecast samples, or evaluation uses data leakage (test‑set information used during training or preprocessing).
+
+### Limitations
+1. This is a retrospective hind‑casting exercise. The GDP hourly dataset contains interpolated and smoothed positions which can incorporate observations from timestamps after the forecast origin. Results do not directly represent real‑time operational forecasting performance.
+2. Analysis is restricted to July‑September (Q3) only. Conclusions cannot be generalised to other seasons.
+3. Multiple forecast samples originate from the same drifter trajectory; samples are not statistically independent.
+4. Forecast performance may have low confidence in geographic regions with sparse drifter coverage, especially near strong gradients and mesoscale eddies.
+5. Drogue‑lost drifters suffer wind‑driven slip bias; drogue‑status is included to evaluate this effect.
+6. Mean‑flow climatology is estimated only from training drifter data; prediction in data‑sparse areas must rely on persistence fallback.
+
 ### References
 
 - Aksamit, N. O., Sapsis, T. P., & Haller, G. (2020). Machine-learning mesoscale and submesoscale surface dynamics from Lagrangian ocean drifter trajectories. *Journal of Physical Oceanography, 50*(5), 1179–1196. <https://doi.org/10.1175/JPO-D-19-0238.1>
