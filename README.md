@@ -1,6 +1,6 @@
 # Forecasting Surface Drifter Trajectories in the Gulf Stream
 
-## Research plan
+## Research proposal
 
 ### 1. Research questions and objectives
 
@@ -16,13 +16,6 @@ The project has four objectives:
 2. Compare the proposed model with two physically meaningful baselines: constant present velocity and advection by the regional mean flow.
 3. Measure how forecast skill changes with lead time, season, location, data quality, and drogue status.
 4. Produce a reproducible forecasting and evaluation pipeline that can be applied to another longitude-latitude box without rewriting the analysis.
-
-Secondary questions include:
-
-- How much recent trajectory history is useful: 6, 24, 48, or 72 hours?
-- Does using recent velocity history improve forecasts beyond using only the latest observed velocity?
-- Are predictions less accurate near strong Gulf Stream gradients, meanders, or eddies?
-- Does forecast performance change after a drifter loses its drogue?
 
 ### 2. Data, region, and data description
 
