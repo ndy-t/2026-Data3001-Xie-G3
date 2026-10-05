@@ -4,18 +4,20 @@
 
 ### 1. Research questions and objectives
 
-This project investigates whether the recent trajectory of a surface drifter can be used to predict where it will travel next in the Gulf Stream region in period July to September.
+The main objective is to use the preceding 24 hours of a surface drifter's trajectory to predict its position 24 hours after the forecast origin. We will compare these forecasts with two physical baselines to assess whether recent history provides useful predictive information. Forecast origins will be restricted to the Gulf Stream region during July–September of 2007–2022.
 
 The primary research question is:
 
-> Given the recent hourly track of a drifter in the Gulf Stream, how accurately can we predict its position 1 hour, 1 day, and 1 week ahead on drifters that were not used for model training?
+> Does using the preceding 24 hours of trajectory history improve 24-hour position forecasts for drifters currently inside the Gulf Stream region, compared with constant present velocity and regional mean-flow advection?
 
 The project has four objectives:
 
-1. Construct reliable multi-horizon position forecasts at lead times of 1, 24, and 168 hours.
-2. Compare the proposed model with two physically meaningful baselines: constant present velocity and advection by the regional mean flow.
-3. Measure how forecast skill changes with lead time, season, location, data quality, and drogue status.
-4. Produce a reproducible forecasting and evaluation pipeline that can be applied to another longitude-latitude box without rewriting the analysis.
+1. Build a forecasting model that uses the previous 24 hours of positions and velocities, together with the current state, to predict the position at `t + 24 hours`.
+2. Compare its forecasts with the two physical baselines on identical test cases from drifters held out of training and model selection.
+3. Compare learned models with and without historical features to distinguish the contribution of history from differences between modelling methods.
+4. Produce a reproducible pipeline and report forecast errors, predicted and observed locations, and variation in performance within July–September, across locations, and by data quality and drogue status.
+
+The initial study fixes both the history window and forecast horizon at 24 hours. Other horizons, history lengths, and more complex models are optional extensions.
 
 ### 2. Data, region, and data description
 
@@ -30,7 +32,7 @@ The initial region of interest is the following Gulf Stream box:
 | Southern latitude | 30°N |
 | Northern latitude | 45°N |
 
-This box captures the Gulf Stream along the east coast of the United States and its northeastward extension into the North Atlantic. The boundaries may be refined after the full coverage audit, but all code will accept the region as parameters rather than hard-coded constants.
+This box captures the Gulf Stream along the east coast of the United States and its northeastward extension into the North Atlantic. This box defines eligible forecast origins; historical inputs and future target positions may lie outside it. The initial comparison will use these boundaries, while all code will accept the region as parameters rather than hard-coded constants.
 
 #### Dataset
 
@@ -41,7 +43,7 @@ This is one NOAA dataset, not two separate datasets. In its CloudDrift/Xarray re
 - **Trajectory dimension (`traj`)**: one entry per drifter, including `id`, `rowsize`, deployment information, start and end dates, location system, and drogue-loss date.
 - **Observation dimension (`obs`)**: many hourly entries per drifter, including `time`, `lat`, `lon`, eastward velocity `ve`, northward velocity `vn`, sea-surface temperature `sst`, uncertainty estimates, quality flags, and `drogue_status`.
 
-Our core modelling variables are:
+The hourly product provides records at one-hour intervals after interpolation and quality control; this is not necessarily the interval between raw satellite fixes. The main inputs will be positions and velocities. SST is an optional extension, while uncertainty and drogue status will support quality checks and diagnostic evaluation. Relevant variables are:
 
 | Variable | Meaning | Unit or type |
 | --- | --- | --- |
@@ -56,7 +58,7 @@ Our core modelling variables are:
 
 Accurate surface-trajectory forecasts support search and rescue, oil-spill response, marine-debris tracking, fisheries management, and the interpretation of Lagrangian ocean observations. The Gulf Stream is an important test region because it is a fast, narrow western boundary current with strong spatial gradients, meanders, and eddies. These features create transport pathways that are economically and scientifically important while also making trajectories difficult to predict.
 
-Short forecasts may be dominated by the drifter's current velocity, whereas errors at one day or one week can grow rapidly as the drifter encounters curved flow, changing current speed, or an eddy. Comparing a learned model against simple physical baselines will show whether recent trajectory history contains useful predictive information beyond persistence and climatology.
+Over 24 hours, forecasts based on current velocity can accumulate errors as a drifter encounters curved flow, changing current speed, or an eddy. The preceding 24 hours may reveal motion patterns that help anticipate its next position. Comparison with physical baselines tests practical forecasting value, while a comparison of the same learned model with and without historical features tests the additional value of history.
 
 ### 4. Background and existing approaches
 
@@ -69,48 +71,57 @@ Several families of methods are relevant to this project:
 - **Statistical time-series models** use recent positions or velocities to extrapolate future motion.
 - **Machine-learning sequence models** learn nonlinear relationships in recent drifter motion. Aksamit et al. (2020), for example, combined recurrent learning with a reduced physical drifter model. More recent work by Grossi et al. (2025) found that simple neural networks did not consistently beat autoregressive baselines on observed Gulf of Mexico trajectories, while a spatiotemporal graph model showed more promise. This supports using strong baselines and held-out trajectories rather than assuming that a more complex model will automatically perform better.
 
-Our modelling approach will use engineered recent-track features with gradient-boosted regression. This gives a practical and interpretable test of whether recent velocity, acceleration, turning, season, and location improve on the baselines. A GRU, LSTM, will be considered as an extension if the feature-based model and data audit justify the additional complexity.
+The initial learned models will be a simple regularised linear regression and a gradient-boosted regression model, using features derived from the previous 24 hours of motion. Each will also be fitted without historical features as a controlled comparison. Additional horizons, SST, alternative history lengths, and neural networks will be considered only after the primary 24-hour forecasting comparison is complete.
 
 ### 5. Proposed method
 
 #### 5.1 Cohort construction and quality control
 
-1. Define a common study window for each year, from 1 September at 00:00 UTC through 30 November at 23:00 UTC.
-2. Identify all drifter IDs with at least one valid observation inside the Gulf Stream box (`80°W–60°W`, `30°N–45°N`) during this window.
-3. For each selected drifter, retrieve all available observations within the same September–November window, regardless of location. Include observations before its first appearance in the box and after it leaves the box.
-4. Sort observations by `id` and `time`, remove duplicate drifter–time records, and align trajectories to the same hourly UTC time grid. Leave unavailable observations missing rather than assuming that every drifter has a complete record.
-5. Remove invalid positions and velocities, examine uncertainty and quality flags, and retain drogue status for separate evaluation of drogued and undrogued observations.
-6. Split trajectories at missing or unacceptably large time gaps and at boundaries between annual study windows. Do not split or truncate a trajectory simply because it crosses the geographic boundary.
-7. Construct forecast samples only when the required history and target observations are available within an uninterrupted segment of the same September–November window. Forecast origins and targets may lie outside the Gulf Stream box.
-8. Extend the spatial coverage of the mean-flow baseline to support trajectories outside the selection box, using training data only and a documented fallback where coverage is insufficient.
+1. Define eligible forecast-origin times as 1 July at 00:00 UTC through 30 September at 23:00 UTC in each year from 2007 to 2022.
+2. Select a forecast origin only when the drifter is inside the Gulf Stream box (`80°W–60°W`, `30°N–45°N`) at that time. A drifter currently outside the box is not eligible merely because it enters the region later.
+3. Retrieve the preceding 24 hours of observations, the current observation, and the target at exactly 24 hours after each origin. Retain required observations outside the geographic box and seasonal window. For example, a 30 September origin may have its target on 1 October, and a 1 July origin may use June history. Complete trajectories may be retrieved for convenience.
+4. Sort by drifter ID and time, remove duplicate drifter–time records, and check hourly timestamp continuity. Reject samples with missing or invalid positions or velocities in the required input window, or a missing or invalid target position. Examine dataset quality flags and uncertainty estimates, and document all quality exclusions.
+5. Match targets by drifter ID and exact timestamp rather than by row offset. Direct endpoint prediction requires valid inputs and the target position; a complete observed path between the origin and target is not required.
+6. Audit the existing extracts for missing boundary observations and retrieve these from the source dataset where necessary. Report eligible sample counts, distinct drifter counts, and sample losses by filtering reason.
 
-#### 5.2 Prediction samples and targets
+#### 5.2 Input history and prediction target
 
-For each valid forecast origin at time `t`, the input will be the previous `L` hourly observations, initially `L = 24` or `48`. Targets will be defined at three horizons:
+At forecast origin `t`, use the 24 preceding hourly records at `t - 24 hours, ..., t - 1 hour`, together with the current position and velocity at `t`. This gives 25 timestamps spanning a full 24 hours when both endpoints are included. No input timestamp may be later than `t`.
 
-| Horizon | Target time |
-| --- | --- |
-| Short | `t + 1 hour` |
-| Medium | `t + 24 hours` |
-| Long | `t + 168 hours` |
+| Component | Time | Role |
+| --- | --- | --- |
+| Historical observations | `t - 24 hours` through `t - 1 hour` | Previous positions and velocities |
+| Current state | `t` | Forecast origin and latest position and velocity |
+| Prediction target | `t + 24 hours` | Observed future position used for training or evaluation |
 
-Instead of directly predicting latitude and longitude, the model will predict local eastward and northward displacement from the forecast origin. This avoids longitude wrap-around and makes the target represent movement in physical distance. Predicted displacements will then be converted back to geographic coordinates.
+The learned models will directly predict eastward and northward displacement from the origin, then convert the displacement back to geographic coordinates using a documented geographic transformation. They will not recursively generate 24 one-hour predictions.
 
-Candidate predictors include:
+Current-state features will include the latest position and velocity, time within the July–September window, and local mean-flow velocity estimated from training data. Historical features will summarise relative positions, velocity means and variability, velocity trends, acceleration, and turning over the fixed 24-hour window. SST is not required for the primary comparison.
 
-- latest position, velocity, speed, and direction;
-- means, standard deviations, and trends of `ve` and `vn` over recent windows;
-- acceleration and recent turning angle;
-- cyclical hour-of-day features and the position of the observation within the September–November study window;
-- sea-surface temperature and recent temperature change;
-- local September–November mean-flow velocity;
-- uncertainty measures and drogue status.
+#### 5.3 Physical baselines and learned models
 
-Separate direct models will initially be trained for 1-, 24-, and 168-hour displacements. This avoids recursively feeding earlier prediction errors through 168 one-hour steps.
+The two primary baselines are:
 
-### 6. Preliminary Research
+1. **Constant present velocity:** extrapolate the latest eastward and northward velocities for 24 hours to obtain a future position. This baseline assumes velocity remains constant, rather than assuming the drifter stays at its current position.
+2. **Regional mean-flow advection:** estimate a spatial July–September mean-velocity field using training drifters only, then numerically advect a particle from the forecast origin for 24 hours. Extend training-data coverage beyond the selection box where available. If the predicted path enters an unsupported area, use the origin velocity for the unsupported integration steps and report fallback use. Choose field resolution and other baseline settings using training and validation data only.
 
-The analyses in [03_preliminary_analysis.ipynb](notebook/03_preliminary_analysis.ipynb) examine data completeness, forecast-horizon feasibility, and a simple prediction benchmark. The results below were checked against the four existing processed files, which contain **July–September observations from 2007–2022**. They are preliminary findings; the September–November cohort described in Section 5 still needs to be extracted and evaluated.
+Fit a regularised linear model and a gradient-boosted model to the same 24-hour displacement targets. For each model, compare a current-state-only version with a version that adds the historical features. Beating a physical baseline alone would not establish that history caused the improvement; the comparison within each model class addresses that question.
+
+All methods will use identical eligible forecast origins and targets for evaluation, including requiring the same valid history even when a baseline does not use it.
+
+#### 5.4 Validation and evaluation
+
+Partition data into training, validation, and test sets by drifter ID, using a reproducible split fixed before model fitting. The same drifter must remain in one partition across all years and processed files. Report distinct drifter and sample counts for each partition.
+
+Estimate preprocessing parameters, any data-derived quality thresholds, and the mean-flow field from training data only. Tune model and baseline settings on validation data, then freeze the design before final test evaluation. Do not use test data to choose features, thresholds, or hyperparameters.
+
+For every method, report median and 90th-percentile great-circle distance error in kilometres on the same test cases. Compare history-based forecasts against both physical baselines and their corresponding current-state-only model. Account for repeated forecasts from the same drifter using paired bootstrap resampling at the drifter level when estimating uncertainty in performance differences.
+
+Include maps showing recent history, the forecast origin, predicted 24-hour locations, and the actual target for a small, reproducibly selected set of test examples. Report diagnostic results by month within July–September, location, data quality, and drogue status where sufficient drifters are available. These are within-window comparisons, not evidence of performance across seasons.
+
+### 6. Preliminary research
+
+The analyses in [03_preliminary_analysis.ipynb](notebook/03_preliminary_analysis.ipynb) examine data completeness, forecast-horizon feasibility, and a simple prediction benchmark. The existing preliminary results below describe four processed files containing **July–September observations from 2007–2022**. They support feasibility assessment but do not yet evaluate the final 24-hour-history sample definition or held-out design in Section 5. Required observations outside the extract boundaries must still be audited and supplemented where necessary.
 
 #### 6.1 Data completeness
 
@@ -129,7 +140,7 @@ Position and velocity are therefore available for the initial models. SST can be
 
 ![Percentage of origins with an exact future observation, by study period and forecast lead time](image/forecast_horizon_availability.png)
 
-Future observations were matched using the same trajectory ID and an exact timestamp offset, rather than a row shift. Across the four periods, availability is **99.92–99.94% at 1 hour**, **98.28–98.60% at 24 hours**, and **90.20–91.27% at 168 hours**. This supports investigating all three proposed horizons. These percentages measure endpoint availability; requiring uninterrupted input history and valid observations throughout each forecast segment will further restrict the usable samples.
+Future observations were matched using the same trajectory ID and an exact timestamp offset, rather than a row shift. Across the four periods, availability is **99.92–99.94% at 1 hour**, **98.28–98.60% at 24 hours**, and **90.20–91.27% at 168 hours**. The 24-hour result supports the chosen prediction horizon; the other horizons provide exploratory context only. These percentages measure endpoint availability, not the availability or quality of a complete 24-hour input history. The final usable sample count must be recalculated after enforcing the history and forecast-origin requirements and checking boundary coverage. A complete observed future path between the origin and target is not required.
 
 #### 6.3 A 24-hour constant-velocity benchmark
 
@@ -139,32 +150,37 @@ The baseline extrapolates the latest eastward and northward velocities for 24 ho
 
 ### Expected deliverables
 
-- Parameterised code for loading any longitude-latitude region.
-- A documented Gulf Stream trajectory dataset and preprocessing pipeline.
-- Implementations of the constant-velocity and mean-flow baselines.
-- A trained multi-horizon forecasting model.
-- Held-out evaluation with error-versus-lead-time plots.
-- A final report explaining model skill, limitations, and practical implications.
+- Parameterised code for selecting forecast origins by geographic box and July–September study window, while retaining required history and targets across boundaries.
+- A documented dataset of 24-hour-history inputs and 24-hour-ahead targets, including quality checks and drifter-ID partitions.
+- Implementations of constant-velocity and mean-flow advection baselines.
+- Linear and gradient-boosted forecasting models, each with and without historical features.
+- Held-out evaluation with distance-error summaries, uncertainty estimates, and maps of predicted and observed locations.
+- A final report explaining whether historical information improves prediction, where it helps or fails, and the study's limitations.
 
-### Success Criteria
-The project will be considered successful if all primary deliverables are achieved:
-1. Preprocessing pipeline produces valid forecast samples from the Q3 Gulf‑Stream dataset, with clear documentation of sample loss during filtering.
-2. Both physical baselines are fully implemented, with fallback handling for locations outside training‑data spatial coverage.
-3. Core comparison is completed on held‑out drifters: quantify whether adding recent trajectory‑history features reduces forecast error compared to baselines.
-4. Evaluation reports median and 90‑percentile great‑circle distance error for all models on identical test samples.
-5. Codebase is fully parameterised: geographic bounding box can be changed without rewriting analysis logic.
+### Success criteria
 
-Partial success: Core baseline implementation and preprocessing are complete, but machine‑learning model tuning or extended‑horizon experiments remain incomplete.
+The project will be considered successful if:
 
-Project failure: Cannot produce valid forecast samples, or evaluation uses data leakage (test‑set information used during training or preprocessing).
+1. The pipeline produces valid samples using the full preceding 24 hours and current state to predict the position 24 hours ahead, with clear documentation of sample exclusions.
+2. Both physical baselines and the initial learned models are implemented, including documented mean-flow fallback handling.
+3. The comparison is completed on identical held-out cases, with preprocessing and model selection respecting the drifter-ID partitions.
+4. Evaluation quantifies the value of historical features through comparisons with both physical baselines and the same learned models without history, reporting median and 90th-percentile distance errors and uncertainty that accounts for repeated forecasts.
+5. Predicted and actual future positions are presented, and the geographic region can be changed without rewriting the analysis logic.
+
+Success does not require history to improve prediction: a valid finding of little or no added value also answers the research question. Additional horizons and neural networks are not required for primary success.
+
+Partial success: preprocessing and physical baselines are complete, but the initial learned-model comparisons remain incomplete.
+
+Project failure: valid forecast samples cannot be produced, or the final comparison is compromised by held-out data being used in training, preprocessing estimation, or model selection.
 
 ### Limitations
-1. This is a retrospective hind‑casting exercise. The GDP hourly dataset contains interpolated and smoothed positions which can incorporate observations from timestamps after the forecast origin. Results do not directly represent real‑time operational forecasting performance.
-2. Analysis is restricted to July‑September (Q3) only. Conclusions cannot be generalised to other seasons.
-3. Multiple forecast samples originate from the same drifter trajectory; samples are not statistically independent.
-4. Forecast performance may have low confidence in geographic regions with sparse drifter coverage, especially near strong gradients and mesoscale eddies.
-5. Drogue‑lost drifters suffer wind‑driven slip bias; drogue‑status is included to evaluate this effect.
-6. Mean‑flow climatology is estimated only from training drifter data; prediction in data‑sparse areas must rely on persistence fallback.
+
+1. This is a retrospective forecasting exercise. The GDP hourly dataset contains interpolated and smoothed positions and velocities that can incorporate observations after the forecast origin. Even timestamp-correct inputs therefore do not establish real-time operational performance.
+2. Forecast origins are restricted to July–September of 2007–2022. Retaining boundary-crossing histories and targets does not justify generalisation to other seasons. Holding out drifters also does not separately test generalisation to future years.
+3. Multiple forecasts from the same drifter are dependent. Drifter-level resampling addresses this clustering, but different drifters may also experience shared ocean conditions.
+4. Sparse coverage, strong gradients, and mesoscale eddies may limit forecast performance. Mean-flow estimates use training data only and require the documented constant-velocity fallback in unsupported areas.
+5. Drogue loss can introduce wind-driven slip; results will be examined by drogue status.
+6. Requiring complete input history and valid target positions excludes some tracks. Report sample losses and coverage so this selection is visible.
 
 ### References
 
@@ -173,56 +189,3 @@ Project failure: Cannot produce valid forecast samples, or evaluation uses data 
 - Elipot, S., Sykulski, A., Lumpkin, R., Centurioni, L., & Pazos, M. (2022). A dataset of hourly sea surface temperature from drifting buoys. *Scientific Data, 9*, 567. <https://doi.org/10.1038/s41597-022-01670-2>
 - Grossi, M. D., Jegelka, S., Lermusiaux, P. F. J., & Özgökmen, T. M. (2025). Surface drifter trajectory prediction in the Gulf of Mexico using neural networks. *Ocean Modelling, 196*, 102543. <https://doi.org/10.1016/j.ocemod.2025.102543>
 - NOAA Global Drifter Program. Hourly location, current velocity, and temperature collected from Global Drifter Program drifters world-wide, version 2.01. <https://doi.org/10.25921/x46c-3620> (accessed 21 September 2026).
-
-### Yiyuan’s feedback
-
-This is a promising and feasible direction. Your preliminary work provides a useful starting point, particularly the exact-timestamp matching and the constant-velocity benchmark. The next step is to sharpen the research question and establish a consistent forecasting and evaluation design.
-
-#### 1. Make the forecasting contribution explicit
-
-Your displacement targets already correspond to predicting future positions. Frame the project around producing these forecasts, with accuracy used to evaluate their usefulness. A more focused research question would be:
-
-> Can recent trajectory history improve 24-hour position forecasts for drifters currently within the Gulf Stream region, beyond forecasts based on present velocity and regional mean flow?
-
-This identifies a specific contribution: testing whether recent history adds predictive information beyond the drifter’s current state. Your final presentation should include predicted and actual future locations, alongside the error summaries.
-
-#### 2. Resolve the study-period inconsistency
-
-The objectives and preliminary results refer to July–September, whereas the proposed method uses September–November. Please choose one period and apply it consistently. Unless there is a substantive reason to change seasons, continuing with the existing July–September extract would avoid unnecessary additional work.
-
-If you study only one seasonal window, describe changes within that window rather than claiming to compare performance across seasons.
-
-#### 3. Clarify which forecasts belong in the analysis
-
-Construct a prediction sample whenever a drifter is inside your Gulf Stream box during the chosen study period and has the required history and future observation.
-
-For example, a 24-hour forecast using 24 hours of history should use the preceding 24 hours as input and the position 24 hours later as its target. Keep those observations even if they lie outside the geographic box or cross the seasonal boundary. A forecast issued on 30 September can therefore use its observed outcome on 1 October.
-
-You may retrieve complete trajectories for convenience, but only include prediction samples whose starting time and position meet your study-period and regional criteria. A drifter currently outside the box should not qualify simply because it enters the region later. This keeps the analysis focused on where a drifter currently inside the region will go next.
-
-#### 4. Specify the evaluation before expanding the models
-
-Create separate training, validation and test samples by drifter ID. Keep the same drifter in one partition even if it appears in different years or processed files.
-
-Estimate preprocessing rules and the mean-flow baseline using training data, tune models using validation data, and reserve the test sample for final evaluation. Compare all methods on the same test cases. Report distinct drifter counts and account for repeated forecasts from the same drifter when assessing uncertainty.
-
-#### 5. Keep the initial modelling scope manageable
-
-I suggest beginning with:
-
-- One primary horizon of 24 hours.
-- One initial history length, such as 24 hours.
-- The two proposed physical baselines.
-- A simple linear model and one gradient-boosted model.
-
-Compare models with and without historical features to identify whether history adds value. Additional horizons, SST, alternative history lengths and neural networks can follow once the core comparison works.
-
-#### 6. Interpret data availability and forecast performance carefully
-
-Endpoint availability is encouraging, but it does not establish adequate input history or observational quality. For direct endpoint prediction, a complete intervening future path is generally unnecessary: the essential requirements are usable input history and a valid observation at the target time.
-
-Also, the hourly product uses interpolation and smoothing that can incorporate observations after a given timestamp. Describe the exercise as retrospective forecasting using processed data, and qualify operational claims, especially for the one-hour horizon.
-
-#### Suggested next update
-
-Please prioritise a consistent sample definition, an explicit validation design, and a small set of actual position forecasts from the baselines and your initial model. Please also add the full Grossi et al. (2025) reference, which is cited in the text but missing from the reference list.
