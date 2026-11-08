@@ -1,0 +1,45 @@
+% =====================================================================
+\section{Models and experimental design}\label{sec:design}
+
+\subsection{Learned model families}
+Five families were fitted to the residual target \eqref{eq:residual} using scikit-learn \citep{pedregosa2011}, each in a \emph{Current} (9 features) and a \emph{History} (25 features) variant. The paired variants share the estimator, preprocessing, tuning grid and data, so their difference isolates the contribution of history features.
+\begin{itemize}
+  \item \textbf{Ridge regression} \citep{hoerl1970} and \textbf{Elastic Net} \citep{zou2005}: linear corrections with $\ell_2$, and combined $\ell_1/\ell_2$, penalties. Missing turning summaries were median-imputed (training medians) with missing-value indicators, and features were standardised. The multi-task Elastic Net applies a joint penalty to the eastward and northward coefficients.
+  \item \textbf{Random Forest} \citep{breiman2001} and \textbf{Extra Trees} \citep{geurts2006}: bagging-type tree ensembles that capture nonlinearity and interactions, with 80\% of features considered per split and median imputation. Extra Trees used randomised split thresholds without bootstrap resampling.
+  \item \textbf{Gradient Boosting} \citep{friedman2001}: histogram-based boosted trees (one model per displacement component), $\ell_2$ regularisation 1.0, minimum leaf size 50, with native missing-value handling. The notebook did not override scikit-learn's default \texttt{early\_stopping="auto"}, which for more than \num{10000} samples stops boosting when the loss on an internal validation set stops improving. That internal set is a \emph{random row-level} 10\% of the training forecasts, not a drifter-grouped split. Because consecutive forecasts from the same drifter overlap almost completely, internal validation rows have near-duplicates in the fitting rows, so the internal loss is optimistic and may allow more boosting iterations than a drifter-grouped split would. The iteration counts in \cref{tab:tuning} are therefore upper bounds. This affects only the number of trees fitted on \emph{training} drifters; the external validation and test drifters were never part of this internal split, so the held-out evaluation is not contaminated.
+\end{itemize}
+
+\begin{table}[!htbp]
+\centering
+\caption{Hyperparameter grids and validation-selected configurations (criterion: minimum validation median great-circle error). Tree configurations are (number of trees, maximum depth, minimum leaf size) and boosting configurations are (maximum iterations, maximum leaf nodes, learning rate).}
+\label{tab:tuning}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}Xll@{}}
+\toprule
+Family & Candidate grid & Selected: Current & Selected: History \\
+\midrule
+Ridge & $\alpha\in\{0.1,1,10,100,1000\}$ & $\alpha=1000$ & $\alpha=100$ \\
+Elastic Net & $\alpha\in\{0.01,0.1,1,10\}\times\ell_1$ ratio $\in\{0.2,0.5,0.8\}$ & $\alpha=1$, ratio $0.5$ & $\alpha=0.01$, ratio $0.8$ \\
+Random Forest & (100,16,20), (150,20,20), (150,24,10) & (100,16,20) & (150,24,10) \\
+Extra Trees & (150,16,20), (150,20,20), (150,24,10) & (150,24,10) & (150,24,10) \\
+Gradient Boosting & (150,15,0.08), (200,31,0.06), (250,31,0.08) & (250,31,0.08) & (250,31,0.08) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Partitioning, tuning and final evaluation}
+Overlapping 25-hour windows from the same drifter are highly correlated. A random split of forecast \emph{cases} would place near-duplicate cases in training and test and overstate skill. We therefore used a \textbf{single drifter-disjoint split}, assigning each drifter to exactly one partition: 15\% of drifters to test, then 15/85 of the remainder to validation (\texttt{GroupShuffleSplit}, seeds 42 and 43). This is a hold-out design, \emph{not} $K$-fold cross-validation. Every reported number comes from one realisation of the split, and the sensitivity of the results to which drifters fall in the test set has not been measured. The mean-flow field, imputation medians, scalers and motion-regime thresholds were all estimated from training data only.
+
+Hyperparameters were selected by validation median error from the small grids in \cref{tab:tuning}. Median error was chosen as a robust criterion for a heavy-tailed outcome; RMSE would have emphasised rare large errors. The history variants of all three tree families selected the most complex configuration in their grid, so additional capacity might improve them further. After selection, configurations were frozen and \emph{all twelve} methods were evaluated once on the untouched test drifters, with no further tuning. The motion, spatial, temporal and SST analyses (\cref{sec:motion,sec:context}) reuse these frozen test predictions and are best regarded as exploratory diagnostics. The SST feature experiment was deliberately evaluated on the validation set, because the test set had already been examined.
+
+\subsection{Metrics and forecast interpretation}
+For each method we report the mean, median, 90th percentile (P90) and root-mean-square (RMSE) of the great-circle error $E$ \eqref{eq:error} over identical cases. The median describes a typical forecast, while P90 and RMSE describe the upper tail that matters most for applications such as search planning. Each forecast is a \emph{rolling} 24-hour forecast: it is re-initialised at every origin from the \emph{observed} state and history. Plots that join successive forecast endpoints (\cref{sec:trajectories}) therefore show a sequence of independent 24-hour predictions, \emph{not} an autonomous trajectory in which predictions are fed back as inputs. Skill in this setting says nothing directly about free-running multi-step forecasting.
+
+\subsection{Motion regimes and uncertainty quantification}\label{sec:bootstrap}
+Test forecasts were stratified into Low, Medium and High regimes of $\bar s_t$, $\bar a_t$ and $\bar\omega_t$ \eqref{eq:descriptors}. The regimes are bounded by the 33.3rd and 66.7th percentiles of the \emph{training} distribution: \SIlist{0.239;0.399}{m\,s^{-1}} for speed, \SIlist{1.55e-5;2.33e-5}{m\,s^{-2}} for acceleration and \SIlist{6.70;13.98}{\degree\per\hour} for turning. Thirteen test forecasts from one drifter with undefined turning were kept as a separate category and excluded from turning-based summaries.
+
+Forecasts from the same drifter are dependent, because consecutive origins share 24 of their 25 input records and their targets are only an hour apart. Treating the \num{82546} test cases as independent would grossly understate uncertainty. We therefore used a \textbf{drifter-cluster bootstrap} \citep{efron1993,cameron2008}. For regime $k$, the paired benefit of history, $g_{ij}=E^{\mathrm{GBC}}_{ij}-E^{\mathrm{GBH}}_{ij}$ for forecast $j$ of drifter $i$, is summarised by the ratio estimator
+\begin{equation}
+\hat G_k=\frac{\sum_i S_{ik}}{\sum_i N_{ik}},\qquad S_{ik}=\sum_{j\in k} g_{ij},\quad N_{ik}=\#\{j\in k\},
+\end{equation}
+and each of $B=2000$ replicates resamples the 78 test drifters with replacement, keeping all of their forecasts. Percentile intervals (2.5\%, 97.5\%) are reported. This accounts for within-drifter dependence and unequal track lengths. It does not account for dependence between different drifters sampling the same eddy, nor for the selection of comparisons after inspecting the data.

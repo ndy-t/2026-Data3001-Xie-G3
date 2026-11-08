@@ -1,0 +1,4 @@
+Descriptor,Feature,Lower Threshold,Upper Threshold
+Speed,mean_speed,0.23868562281131744,0.39854657649993896
+Acceleration,mean_acceleration,1.5464394891751e-05,2.3314700229093432e-05
+Turning,mean_turning,6.695737747918991,13.984027089636308

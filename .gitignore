@@ -18,3 +18,13 @@ data/processed/*
 # Python
 __pycache__/
 *.pyc
+
+# Local history
+.Rhistory
+**/.Rhistory
+
+# Large trained models
+models/*.joblib
+
+# Large processed datasets
+data/processed/*.parquet

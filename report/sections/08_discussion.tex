@@ -1,0 +1,64 @@
+% =====================================================================
+\section{Discussion}\label{sec:discussion}
+
+\subsection{Synthesis}
+The results form a consistent picture. Constant Velocity is a strong baseline at 24 hours, far stronger than a climatological mean flow, because the instantaneous velocity already encodes the synoptic state of meanders and eddies. Its errors are nonetheless large and systematic, and they grow wherever velocity is not persistent: at high speed, under acceleration and during looping motion. A correction learned from the preceding 24 hours of the drifter's own motion removes about 40\% of the median CV error on unseen drifters. Most of that gain comes from the history information rather than from model flexibility, but flexible tree ensembles exploit the history information more fully than linear models. These conclusions agree with the literature that strong kinematic baselines are hard to beat \citep{grossi2025,lin2026}. They also show that, at a 24-hour horizon and with hourly data, motion history carries substantial additional information, in line with \citet{aksamit2020}.
+
+The motion analysis refines the proposal's working hypothesis. We expected turning and acceleration to make forecasts harder. Instead, speed dominates absolute difficulty, and turning is associated with \emph{easier} forecasts, mostly because turning drifters are slow. Acceleration and turning matter more for \emph{which method} works best than for absolute difficulty: CV is most disadvantaged under acceleration and turning, the climatology becomes competitive under strong turning, and history gives its largest benefit for fast, turning motion. Evaluating forecast methods only on aggregate error would miss all of these distinctions.
+
+\subsection{Practical significance of the findings}\label{sec:significance}
+We separate what was demonstrated (retrospective skill on held-out GDP drifters) from what it could mean for applications (untested).
+\begin{itemize}
+  \item \textbf{Size of the improvement.} The typical 24-hour miss shrinks from \SI{15.89}{km} to \SI{9.23}{km} (41.9\%), and the 90th-percentile miss from \SI{40.90}{km} to \SI{28.55}{km}. As a purely geometric illustration, a circle with these radii would cover about one-third (median) and one-half (P90) of the original area. Real search or monitoring areas also depend on the object's own drift, the shape of the error distribution and operational factors, so this is not a demonstrated reduction in search effort.
+  \item \textbf{Knowing in advance when a forecast is unreliable.} All three motion descriptors are computed from data available at forecast time. The \GBH{} median error triples from low- to high-speed regimes (\SI{5.55}{} to \SI{15.21}{km}) and the P90 rises to \SI{39.7}{km}. Recent speed therefore acts as a usable, if coarse, warning that a particular forecast deserves wider uncertainty margins. A single aggregate error would hide this.
+  \item \textbf{Where history matters most.} History gave its largest benefit for fast, strongly turning drifters (\SI{7.03}{km} against \SI{4.02}{km} for other fast drifters; difference \SIrange{1.21}{5.25}{km}, exploratory). These are situations in which persistence of the current velocity fails quickly while the drifter still travels far, so a model that ignores recent history is penalised most.
+  \item \textbf{Curvature is not a reliable warning sign.} Strongly turning tracks had the \emph{lowest} errors (\GBH{} median \SI{6.48}{km} against \SI{13.91}{km} for nearly straight tracks), mainly because turning drifters are slow. A user who treated a curvy track as the main signal of an unreliable forecast would misdirect attention; speed is the better first indicator, and turning is more informative about \emph{which} method to use.
+\end{itemize}
+
+\subsection{Limitations}\label{sec:limitations}
+We separate limitations of the \emph{study design}, which bound what the evidence can show, from \emph{demonstrated weaknesses} of the models.
+
+\paragraph{Study design.}
+\begin{enumerate}[label=(\roman*)]
+  \item \emph{Retrospective inputs.} GDP hourly positions and velocities are estimated from satellite fixes on both sides of each time \citep{elipot2016}. The ``current'' velocity and the last hours of the input window therefore contain some information from after $t$. This affects every method, including the CV baseline, and the size of its effect on skill is unknown. The results measure retrospective predictability, not real-time operational skill.
+  \item \emph{Drogue status.} 48.7\% of forecast origins come from drifters flagged as undrogued, whose motion includes wind-driven slip. The models neither filtered nor conditioned on drogue status, so the reported skill describes a mixture of two kinds of drifter behaviour, and performance within each group is unknown. This check was made only at the reporting stage.
+  \item \emph{One split, 78 test drifters.} All results come from a single drifter-disjoint partition. We quantified uncertainty with the cluster bootstrap only for the GB Current versus History comparison; model-versus-baseline differences and differences among the tree ensembles were not bootstrapped, and the variability across alternative splits was not measured. The very large and consistent margins over CV make a reversal implausible, but the exact percentages are uncertain.
+  \item \emph{Dependence and test reuse.} The cluster bootstrap handles dependence within drifters but not dependence between drifters sampling the same features. The subgroup, spatial, temporal and SST analyses reused the test set after the models were frozen, and the high-speed contrast was chosen after inspecting the data.
+  \item \emph{Fixed configuration.} There is one horizon (24\,h), one history length (24\,h), one season and one region. The course brief's suggested ``error against lead time'' comparison was not produced. Rolling forecasts re-initialised from observations say nothing directly about autonomous multi-step trajectory prediction.
+  \item \emph{Tuning and loss.} The grids were small, the history tree models selected the most complex configuration available, and Gradient Boosting's default internal early stopping used a random row-level, not drifter-grouped, 10\% of training rows, which may have stopped later than a grouped split would (\cref{sec:design}); this stays inside the training drifters and does not touch the test set. The models were fitted with a squared-error loss in displacement but selected on median great-circle error. None of this compromises the test evaluation, but better-tuned models might perform somewhat better.
+  \item \emph{Baseline and geometry.} The mean-flow field is an unweighted \ang{1} average of training origin velocities. Drifters over-sample convergent regions, so such averages are biased estimates of the mean current, and a carefully constructed climatology \citep[e.g.][]{lumpkin2013} might do better. All geometry assumes a sphere with $R=\SI{6371}{km}$. The local-Cartesian versus spherical inconsistency was resolved (\cref{sec:framework}), but ellipsoidal effects, typically a fraction of a percent of distance, were not modelled.
+  \item \emph{Observational associations.} Speed, acceleration, turning, SST and location are inter-correlated, and the models contain no wind, sea-surface-height or current-field information. Regime differences are associations and do not identify physical mechanisms.
+\end{enumerate}
+
+\paragraph{Demonstrated model weaknesses.} Even the best model retains a heavy upper tail (P90 \SI{28.5}{km} overall, \SI{39.7}{km} at high speed). Adding history made 28.6\% of individual test forecasts worse (\GBH{} against \GBC). Consecutive rolling forecasts jitter, and the models produce single deterministic endpoints with no statement of their own uncertainty.
+
+\subsection{Evaluation against the proposal's success criteria}
+\Cref{tab:criteria} evaluates the project against the six success criteria fixed in the proposal. Beyond the original plan, the project (a) added Elastic Net, Random Forest and Extra Trees, (b) replaced single-step with stepwise mean-flow advection, (c) corrected the target geometry, and (d) added spatial, temporal and SST analyses and an SST ablation. Several planned diagnostics were not completed: results by drogue status, month or data quality; a sensitivity analysis weighting drifters equally; a mean-flow velocity feature; heading-sector analyses; and bootstrap intervals for comparisons against the physical baselines. An earlier exploratory analysis for the poster used a larger box (\ang{80}--\ang{50}W, \ang{25}--\ang{45}N), a different sample definition and partly different metrics. Its numbers are not comparable with, and are superseded by, the results reported here.
+
+\begin{table}[!htbp]
+\centering
+\caption{Proposal success criteria and their status.}
+\label{tab:criteria}
+\small
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.36\textwidth}l>{\raggedright\arraybackslash}X@{}}
+\toprule
+Criterion (abridged) & Status & Evidence or gap \\
+\midrule
+1. Valid samples with full 24-h history and exact 24-h target; exclusions documented & Met & 99.04\% of origins retained (\cref{sec:data}); exclusions counted but not broken down by reason \\
+2. Both physical baselines and learned models, with documented mean-flow fallback & Met & \cref{sec:framework}; fallback 0.73\% of hourly steps (validation) \\
+3. Identical held-out cases; preprocessing and selection respect drifter partitions & Met & Training-only estimation; one test evaluation (\cref{sec:design}) \\
+4. Value of history vs baselines and no-history models, median and P90, with dependence-aware uncertainty & Partly met & Point estimates for all comparisons; cluster-bootstrap intervals only for Current vs History (GB) \\
+5. Predefined motion-group analysis with counts, paired gains and uncertainty & Largely met & Training tertiles fixed before testing; counts and drifters reported; intervals for joint regimes; single-descriptor groups not bootstrapped \\
+6. Predicted vs actual positions shown; region changeable without rewriting & Largely met & \cref{fig:traj,fig:cases}; region set in a configuration cell, but some plotting cells hard-code the box extent \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Recommendations}
+The recommendations are addressed to the industry partner and to other users of the GDP hourly product. They apply to \emph{retrospective} evaluation of the product: how predictable drifter positions are from the data themselves, and under which conditions. They are \emph{not} yet evidence of operational real-time forecasting skill, because the inputs are smoothed using later fixes, almost half the cohort is undrogued, and only one region, season and horizon were tested.
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Benchmark for retrospective evaluation.} When assessing the 24-hour predictability of GDP hourly trajectories, use a history-enhanced tree-ensemble correction to Constant Velocity as the reference method. Gradient Boosting matched the accuracy of Random Forest and Extra Trees at a fraction of their training cost and storage. Do not rely on an unweighted climatological mean flow, except possibly as a component for strongly looping motion.
+  \item \textbf{Report errors by regime, with drifter-level uncertainty.} Median error varied threefold with recent speed, and method rankings changed with turning. Forecast evaluations of drifter data should report regime-conditioned medians and tails with drifter-cluster intervals rather than one aggregate score, and should treat high recent speed, not track curvature, as the first indicator of a low-confidence forecast.
+  \item \textbf{Before any operational claim}, re-evaluate with inputs that are available in real time (velocities derived only from fixes up to $t$), stratify by drogue status or include it as a feature, use repeated or chronological drifter hold-outs, and report error against lead time. Transfer to search-and-rescue or pollution applications would additionally require validation against the drift of the relevant objects (e.g. leeway or windage), not only of drogued drifters.
+  \item \textbf{Target the tail.} Future work should prioritise probabilistic or ensemble forecasts that can express large uncertainty for fast or accelerating drifters. It should also test richer environmental predictors, such as gridded currents, wind and SST fronts, rather than single point values, which added nothing here.
+\end{enumerate}

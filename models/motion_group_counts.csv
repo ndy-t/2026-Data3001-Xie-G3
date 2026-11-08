@@ -1,0 +1,11 @@
+Descriptor,Group,Samples,Drifters
+Speed,Low,24510,62
+Speed,Medium,24046,69
+Speed,High,33990,73
+Acceleration,Low,23198,71
+Acceleration,Medium,27627,77
+Acceleration,High,31721,73
+Turning,Low,30570,73
+Turning,Medium,24432,72
+Turning,High,27531,66
+Turning,Undefined,13,1

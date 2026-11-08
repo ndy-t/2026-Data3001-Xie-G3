@@ -1,0 +1,98 @@
+% =====================================================================
+\section{Forecasting framework and features}\label{sec:framework}
+
+\subsection{Notation and forecast target}
+For drifter $i$ at forecast origin $t$, let $\pvec_t=(\lambda_t,\phi_t)$ be the position, $\vvec_t=(u_t,v_t)$ the eastward and northward velocity, and $\tau=\SI{86400}{s}$ the 24-hour horizon. The input window is $\mathcal{W}_t=\{(\pvec_{t-k},\vvec_{t-k}):k=0,\dots,24\}$ and the target is the observed position $\pvec_{t+\tau}$ (\cref{fig:schematic}). Every forecast is a \emph{direct} 24-hour endpoint prediction. No model recursively generates intermediate hourly positions; the stepwise mean-flow baseline integrates only its own climatological field.
+
+Displacements are expressed as east--north vectors $\dvec=(d_E,d_N)$ in metres on a sphere of radius $R=\SI{6371}{km}$. The \emph{forward geodesic} map $\G(\pvec,\dvec)$ moves a distance $s=\lVert\dvec\rVert$ along a great circle with initial bearing $\beta=\operatorname{atan2}(d_E,d_N)$:
+\begin{equation}\label{eq:forward}
+\phi'=\arcsin\!\big(\sin\phi\cos\delta+\cos\phi\sin\delta\cos\beta\big),\qquad
+\lambda'=\lambda+\operatorname{atan2}\!\big(\sin\beta\sin\delta\cos\phi,\;\cos\delta-\sin\phi\sin\phi'\big),
+\end{equation}
+with $\delta=s/R$. The \emph{inverse geodesic} $\G^{-1}(\pvec,\pvec')$ returns $\dvec=R\,\sigma\,(\sin\beta,\cos\beta)$, where $\sigma$ is the central angle and $\beta$ the initial bearing from $\pvec$ to $\pvec'$. Forecast error is the great-circle (haversine) distance
+\begin{equation}\label{eq:error}
+E=D(\hat\pvec,\pvec_{t+\tau})=2R\arcsin\sqrt{\sin^2\tfrac{\Delta\phi}{2}+\cos\hat\phi\,\cos\phi_{t+\tau}\sin^2\tfrac{\Delta\lambda}{2}}.
+\end{equation}
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\small,>=Stealth]
+  % ---- time axis (top) ----
+  \node[anchor=west,font=\footnotesize\bfseries] at (-0.2,1.25) {(a) time};
+  \draw[->,thick,gray!70] (0,0) -- (14.2,0) node[right,black,font=\footnotesize]{time};
+  \foreach \k in {0,...,24}{\fill[blue!60] ({0.4+0.2*\k},0) circle (1.3pt);}
+  \fill[blue!80!black] (5.2,0) circle (2.4pt);
+  \draw[thick,blue!60,|-|] (0.4,0.3) -- (5.2,0.3);
+  \node[above,align=center,blue!50!black,font=\footnotesize] at (2.8,0.33) {input window $\mathcal{W}_t$: 25 hourly records $\rightarrow$ features $\xvec_t$};
+  \node[below,font=\footnotesize] at (0.4,-0.08) {$t-24$\,h};
+  \node[below,font=\footnotesize] at (5.2,-0.08) {origin $t$};
+  \fill[black] (12.6,0) circle (2.4pt);
+  \node[below,font=\footnotesize] at (12.6,-0.08) {$t+24$\,h};
+  \node[above,font=\footnotesize] at (12.6,0.1) {target $\pvec_{t+\tau}$};
+  \draw[->,gray,dashed] (5.4,0.55) to[bend left=12] node[above,font=\footnotesize,gray!40!black]{direct 24-h forecast (no recursion)} (12.4,0.55);
+  % ---- displacement (bottom) ----
+  \node[anchor=west,font=\footnotesize\bfseries] at (-0.2,-1.15) {(b) space};
+  \fill[blue!80!black] (2.0,-2.3) circle (2.4pt) node[below left,font=\footnotesize,black]{$\pvec_t$};
+  \draw[->,very thick,gray] (2.0,-2.3) -- node[below,font=\footnotesize,gray!40!black]{Constant Velocity displacement $\tau\vvec_t$} (8.6,-2.3);
+  \fill[gray] (8.6,-2.3) circle (1.8pt);
+  \draw[->,very thick,teal!70!black] (8.6,-2.3) -- (9.9,-1.45);
+  \node[right,font=\footnotesize,teal!50!black,align=left] at (9.35,-2.35) {learned correction $\hat\rvec_t=f(\xvec_t)$};
+  \fill[teal!70!black] (9.9,-1.45) circle (1.8pt) node[above left,font=\footnotesize]{$\hat\pvec_{t+\tau}$};
+  \node[star,star points=5,fill=black,inner sep=1.4pt] at (10.35,-1.25) {};
+  \node[right,font=\footnotesize] at (10.5,-1.2) {observed $\pvec_{t+\tau}$};
+  \draw[<->,red!60!black,thin] (9.98,-1.42) -- (10.28,-1.28);
+  \node[font=\footnotesize,red!50!black] at (10.7,-1.65) {error $E$};
+  \node[draw,rounded corners,fill=gray!8,align=left,font=\footnotesize,anchor=west] at (-0.2,-3.25)
+   {$\hat\pvec_{t+\tau}=\G\big(\pvec_t,\;\tau\vvec_t+f(\xvec_t)\big)$;\quad training target $\rvec_t=\G^{-1}(\pvec_t,\pvec_{t+\tau})-\tau\vvec_t$;\quad error $E=D(\hat\pvec_{t+\tau},\pvec_{t+\tau})$};
+\end{tikzpicture}
+\caption{Forecast set-up. A forecast issued at origin $t$ uses only the 25 hourly records up to and including $t$. Learned models predict the residual between the observed 24-hour displacement and the Constant Velocity displacement. The predicted displacement is mapped to a position with the forward geodesic \eqref{eq:forward}.}
+\label{fig:schematic}
+\end{figure}
+
+\subsection{Physical baselines}
+\paragraph{Constant Velocity (CV).} The current velocity is extrapolated for 24 hours: $\hat\pvec^{\mathrm{CV}}_{t+\tau}=\G(\pvec_t,\tau\vvec_t)$.
+
+\paragraph{Mean-flow Advection.} A climatological velocity field $\bar\vvec(c)$ was estimated on a \ang{1}$\times$\ang{1} grid as the mean origin velocity of all \emph{training} forecasts in cell $c$ (224 cells). A particle is advected in 24 hourly steps,
+\begin{equation}
+\pvec^{(k+1)}=\G\big(\pvec^{(k)},\,\Delta t\,\bar\vvec(c(\pvec^{(k)}))\big),\quad k=0,\dots,23,\quad \Delta t=\SI{3600}{s},\quad \pvec^{(0)}=\pvec_t,
+\end{equation}
+using the drifter's own origin velocity whenever the particle enters a cell with no training data (0.73\% of hourly steps on validation data). This stepwise version replaced an initial single-step version (one cell mean held for 24\,h) after it reduced validation median error slightly, from \SI{22.66}{km} to \SI{22.37}{km}.
+
+\subsection{Residual-correction learning}
+Learned models do not predict positions directly. They estimate a correction to Constant Velocity:
+\begin{equation}\label{eq:residual}
+\rvec_t=\G^{-1}(\pvec_t,\pvec_{t+\tau})-\tau\vvec_t,\qquad
+\hat\rvec_t=f(\xvec_t),\qquad
+\hat\pvec_{t+\tau}=\G\big(\pvec_t,\,\tau\vvec_t+\hat\rvec_t\big).
+\end{equation}
+Here $f:\mathbb{R}^p\to\mathbb{R}^2$ is fitted by least squares on the two residual components. This formulation makes CV the natural ``zero-correction'' reference, so a learned model only needs to describe \emph{departures} from persistence of velocity. Note that models are fitted with a squared-error loss in displacement space but evaluated and tuned on great-circle errors (\cref{sec:design}).
+
+\paragraph{Geometric consistency.} In a first implementation, observed displacements were computed in a local Cartesian approximation, $d_E=R\cos\phi_t\,\Delta\lambda$ and $d_N=R\,\Delta\phi$, while predictions were mapped back with the spherical forward geodesic. To test this mismatch, we reconstructed each observed validation target from its own local-Cartesian displacement. The round-trip error had median \SI{0.021}{km} and 99th percentile \SI{1.54}{km} (maximum \SI{2.98}{km}), and \num{1961} validation cases (2.2\%) exceeded \SI{1}{km}. The discrepancy is small relative to forecast errors, but approximation error of this kind is expected to grow with displacement and latitude, and long displacements are exactly where the motion analysis focuses. Targets were therefore redefined with the inverse geodesic in \eqref{eq:residual}, after which the round-trip error is at machine precision (maximum \SI{5e-9}{m}), and all learned models were refitted. All reported results use the refitted models.
+
+\subsection{Features}
+\Cref{tab:features} lists the 25 predictors. The \emph{current-state} set (9 features) describes only the origin; the \emph{history} set adds 16 summaries of the input window. With $s_k=\lVert\vvec_{t-k}\rVert$ and $\Delta t=\SI{3600}{s}$, the three motion descriptors used later to define regimes are
+\begin{equation}\label{eq:descriptors}
+\bar s_t=\frac{1}{25}\sum_{k=0}^{24}s_k,\qquad
+\bar a_t=\frac{1}{24}\sum_{k=0}^{23}\frac{\lVert\vvec_{t-k}-\vvec_{t-k-1}\rVert}{\Delta t},\qquad
+\bar\omega_t=\frac{1}{|\mathcal{K}_t|}\sum_{k\in\mathcal{K}_t}\big|\operatorname{wrap}(\theta_{t-k}-\theta_{t-k-1})\big|,
+\end{equation}
+where $\theta=\operatorname{atan2}(v,u)$ is the heading, $\operatorname{wrap}$ maps angles to $(-\ang{180},\ang{180}]$, and $\mathcal{K}_t$ contains the hourly steps at which both speeds are at least \SI{0.05}{m\,s^{-1}}, because heading is unreliable near zero speed. The mean turning rate $\bar\omega_t$ is in degrees per hour and is undefined if $\mathcal{K}_t$ is empty (471 of \num{626679} cases). All features use only information available at or before $t$.
+
+\begin{table}[!htbp]
+\centering
+\caption{Predictors. Current-only models use the 9 current-state features; history-enhanced models use all 25.}
+\label{tab:features}
+\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+Group & Features \\
+\midrule
+Current state (9) & $\lambda_t$, $\phi_t$, $u_t$, $v_t$, speed $s_0$, heading $\sin\theta_t$ and $\cos\theta_t$, day of year as $\sin$ and $\cos$ \\
+\addlinespace
+History: speed and velocity (6) & mean and s.d. of speed; mean and s.d. of $u$ and of $v$ over the 25 records \\
+History: acceleration (3) & mean and maximum acceleration magnitude; mean absolute speed change per second \\
+History: turning (3) & mean and maximum absolute turning rate; fraction of valid turning steps $|\mathcal{K}_t|/24$ \\
+History: trend and displacement (4) & least-squares slopes of $u$ and $v$ over the window; net change in longitude and latitude from $t-24$\,h to $t$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
